@@ -1,0 +1,71 @@
+# OS & System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Icon\r
+Icon?
+Icon*
+
+# AWS SAM Build & Deployment Artifacts
+.aws-sam/
+samconfig.toml.bak
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node.js & Package Managers
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-debug.log*
+
+# Frontend Build Outputs
+dist/
+dist-ssr/
+*.local
+.vite/
+.next/
+
+# Environment Variables & Sensitive Configs
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Editor & IDE Directories
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace

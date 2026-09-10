@@ -1,0 +1,1 @@
+# Placeholder function dependencies (boto3 is included in AWS Lambda standard runtime)

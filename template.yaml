@@ -1,0 +1,257 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Smart Employee Onboarding & Identity Service - Phase 0 Setup
+  Core infrastructure: S3 buckets (documents & static frontend), DynamoDB employee profile table,
+  least-privilege IAM execution role, and placeholder Lambda function.
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Deployment environment stage (e.g., dev, staging, prod)
+
+Globals:
+  Function:
+    Timeout: 10
+    MemorySize: 128
+    Runtime: python3.12
+    Environment:
+      Variables:
+        STAGE: !Ref Stage
+        EMPLOYEE_TABLE_NAME: !Ref EmployeeProfileTable
+        DOCUMENTS_BUCKET_NAME: !Ref DocumentsBucket
+
+Resources:
+
+  # ---------------------------------------------------------------------------
+  # S3: Employee Documents Bucket (Private, SSE-S3 encrypted, Versioning on)
+  # Naming convention: onboarding-documents-<stage>-<account_id>
+  # ---------------------------------------------------------------------------
+  DocumentsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "onboarding-documents-${Stage}-${AWS::AccountId}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Project
+          Value: smart-employee-onboarding
+        - Key: Environment
+          Value: !Ref Stage
+
+  DocumentsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DocumentsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: EnforceTlsRequestsOnly
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !Sub "arn:aws:s3:::${DocumentsBucket}"
+              - !Sub "arn:aws:s3:::${DocumentsBucket}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  # ---------------------------------------------------------------------------
+  # S3: Frontend Static Website Hosting Bucket
+  # Naming convention: onboarding-frontend-<stage>-<account_id>
+  # ---------------------------------------------------------------------------
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "onboarding-frontend-${Stage}-${AWS::AccountId}"
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: false
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: false
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      Tags:
+        - Key: Project
+          Value: smart-employee-onboarding
+        - Key: Environment
+          Value: !Ref Stage
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: PublicReadForStaticWebsite
+            Effect: Allow
+            Principal: '*'
+            Action: 's3:GetObject'
+            Resource: !Sub "arn:aws:s3:::${FrontendBucket}/*"
+
+  # ---------------------------------------------------------------------------
+  # DynamoDB: Canonical Employee Profile Table
+  # Naming convention: onboarding-employee-profile-<stage>
+  # ---------------------------------------------------------------------------
+  EmployeeProfileTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "onboarding-employee-profile-${Stage}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: employee_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: employee_id
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Project
+          Value: smart-employee-onboarding
+        - Key: Environment
+          Value: !Ref Stage
+
+  # ---------------------------------------------------------------------------
+  # IAM Execution Role: Least-privilege role for Placeholder Function
+  # Naming convention: onboarding-placeholder-role-<stage>
+  # ---------------------------------------------------------------------------
+  PlaceholderFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "onboarding-placeholder-role-${Stage}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudWatchLogsScopedPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/onboarding-placeholder-${Stage}:*"
+        - PolicyName: DynamoDBScopedAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                Resource: !GetAtt EmployeeProfileTable.Arn
+        - PolicyName: S3DocumentsScopedAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "${DocumentsBucket.Arn}/*"
+      Tags:
+        - Key: Project
+          Value: smart-employee-onboarding
+        - Key: Environment
+          Value: !Ref Stage
+
+  # ---------------------------------------------------------------------------
+  # Lambda: Placeholder Function
+  # Naming convention: onboarding-placeholder-<stage>
+  # ---------------------------------------------------------------------------
+  PlaceholderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "onboarding-placeholder-${Stage}"
+      CodeUri: backend/functions/placeholder/
+      Handler: app.lambda_handler
+      Runtime: python3.12
+      Timeout: 10
+      MemorySize: 128
+      Role: !GetAtt PlaceholderFunctionRole.Arn
+      Environment:
+        Variables:
+          STAGE: !Ref Stage
+          EMPLOYEE_TABLE_NAME: !Ref EmployeeProfileTable
+          DOCUMENTS_BUCKET_NAME: !Ref DocumentsBucket
+      Tags:
+        Project: smart-employee-onboarding
+        Environment: !Ref Stage
+
+Outputs:
+  DeploymentStage:
+    Description: Active deployment stage
+    Value: !Ref Stage
+
+  EmployeeProfileTableName:
+    Description: DynamoDB Table Name for Employee Profiles
+    Value: !Ref EmployeeProfileTable
+    Export:
+      Name: !Sub "${AWS::StackName}-EmployeeProfileTable"
+
+  EmployeeProfileTableArn:
+    Description: DynamoDB Table ARN for Employee Profiles
+    Value: !GetAtt EmployeeProfileTable.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-EmployeeProfileTableArn"
+
+  DocumentsBucketName:
+    Description: S3 Bucket Name for Private Document Storage
+    Value: !Ref DocumentsBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-DocumentsBucket"
+
+  DocumentsBucketArn:
+    Description: S3 Bucket ARN for Private Document Storage
+    Value: !GetAtt DocumentsBucket.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-DocumentsBucketArn"
+
+  FrontendBucketName:
+    Description: S3 Bucket Name for Frontend Static Website Hosting
+    Value: !Ref FrontendBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-FrontendBucket"
+
+  FrontendWebsiteURL:
+    Description: Static Website Hosting Endpoint URL
+    Value: !GetAtt FrontendBucket.WebsiteURL
+    Export:
+      Name: !Sub "${AWS::StackName}-FrontendWebsiteURL"
+
+  PlaceholderFunctionArn:
+    Description: Placeholder Lambda Function ARN
+    Value: !GetAtt PlaceholderFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-PlaceholderFunctionArn"
