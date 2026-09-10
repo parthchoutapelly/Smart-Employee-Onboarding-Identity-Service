@@ -1,9 +1,9 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  Smart Employee Onboarding & Identity Service - Phase 0 Setup
-  Core infrastructure: S3 buckets (documents & static frontend), DynamoDB employee profile table,
-  least-privilege IAM execution role, and placeholder Lambda function.
+  Smart Employee Onboarding & Identity Service
+  Phase 0 & Phase 1 — Infrastructure, Storage, Cognito User Pool, DynamoDB EmployeeProfile,
+  API Gateway (/employees), and least-privilege Lambda functions.
 
 Parameters:
   Stage:
@@ -17,21 +17,42 @@ Parameters:
 
 Globals:
   Function:
-    Timeout: 10
-    MemorySize: 128
+    Timeout: 15
+    MemorySize: 256
     Runtime: python3.12
     Environment:
       Variables:
         STAGE: !Ref Stage
         EMPLOYEE_TABLE_NAME: !Ref EmployeeProfileTable
         DOCUMENTS_BUCKET_NAME: !Ref DocumentsBucket
+  Api:
+    Cors:
+      AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+      AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      AllowOrigin: "'*'"
 
 Resources:
 
-  # ---------------------------------------------------------------------------
-  # S3: Employee Documents Bucket (Private, SSE-S3 encrypted, Versioning on)
-  # Naming convention: onboarding-documents-<stage>-<account_id>
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
+  # API GATEWAY
+  # ===========================================================================
+  OnboardingApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "onboarding-api-${Stage}"
+      StageName: !Ref Stage
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+      Tags:
+        Project: smart-employee-onboarding
+        Environment: !Ref Stage
+
+  # ===========================================================================
+  # S3 STORAGE
+  # ===========================================================================
+  # Private documents bucket (SSE-S3 encrypted, Versioning on)
   DocumentsBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -71,10 +92,7 @@ Resources:
               Bool:
                 aws:SecureTransport: 'false'
 
-  # ---------------------------------------------------------------------------
-  # S3: Frontend Static Website Hosting Bucket
-  # Naming convention: onboarding-frontend-<stage>-<account_id>
-  # ---------------------------------------------------------------------------
+  # Frontend static website hosting bucket
   FrontendBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -109,10 +127,9 @@ Resources:
             Action: 's3:GetObject'
             Resource: !Sub "arn:aws:s3:::${FrontendBucket}/*"
 
-  # ---------------------------------------------------------------------------
-  # DynamoDB: Canonical Employee Profile Table
-  # Naming convention: onboarding-employee-profile-<stage>
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
+  # DYNAMODB TABLE
+  # ===========================================================================
   EmployeeProfileTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -134,10 +151,79 @@ Resources:
         - Key: Environment
           Value: !Ref Stage
 
-  # ---------------------------------------------------------------------------
-  # IAM Execution Role: Least-privilege role for Placeholder Function
-  # Naming convention: onboarding-placeholder-role-<stage>
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
+  # COGNITO USER POOL & APP CLIENT (Phase 1)
+  # ===========================================================================
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "onboarding-user-pool-${Stage}"
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          RequireUppercase: true
+          TemporaryPasswordValidityDays: 7
+      Schema:
+        - Name: employee_id
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: "1"
+            MaxLength: "256"
+        - Name: role
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: "1"
+            MaxLength: "256"
+        - Name: department
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: "1"
+            MaxLength: "256"
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+        InviteMessageTemplate:
+          EmailSubject: "Welcome to the Team — Set up your account"
+          EmailMessage: >
+            Welcome to the team! Your employee onboarding account has been created.<br/><br/>
+            Username: {username}<br/>
+            Temporary Password: {####}<br/><br/>
+      UserPoolTags:
+        Project: smart-employee-onboarding
+        Environment: !Ref Stage
+
+  CognitoUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub "onboarding-frontend-client-${Stage}"
+      UserPoolId: !Ref CognitoUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      PreventUserExistenceErrors: ENABLED
+      SupportedIdentityProviders:
+        - COGNITO
+
+  # ===========================================================================
+  # IAM EXECUTION ROLES (Least-privilege per function)
+  # ===========================================================================
   PlaceholderFunctionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -186,33 +272,175 @@ Resources:
         - Key: Environment
           Value: !Ref Stage
 
-  # ---------------------------------------------------------------------------
-  # Lambda: Placeholder Function
-  # Naming convention: onboarding-placeholder-<stage>
-  # ---------------------------------------------------------------------------
+  CreateEmployeeProfileFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "onboarding-create-employee-profile-role-${Stage}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudWatchLogsScopedPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/onboarding-create-employee-profile-${Stage}:*"
+        - PolicyName: DynamoDBCreateProfilePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                Resource: !GetAtt EmployeeProfileTable.Arn
+        - PolicyName: InvokeProvisionUserPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:onboarding-provision-cognito-user-${Stage}"
+      Tags:
+        - Key: Project
+          Value: smart-employee-onboarding
+        - Key: Environment
+          Value: !Ref Stage
+
+  ProvisionCognitoUserFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "onboarding-provision-cognito-user-role-${Stage}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudWatchLogsScopedPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/onboarding-provision-cognito-user-${Stage}:*"
+        - PolicyName: CognitoAdminCreateUserPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cognito-idp:AdminCreateUser
+                  - cognito-idp:AdminGetUser
+                  - cognito-idp:AdminUpdateUserAttributes
+                Resource: !GetAtt CognitoUserPool.Arn
+        - PolicyName: DynamoDBUpdateCognitoSubPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:UpdateItem
+                  - dynamodb:GetItem
+                Resource: !GetAtt EmployeeProfileTable.Arn
+        - PolicyName: SESOptionalWelcomeEmailPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: "*"
+      Tags:
+        - Key: Project
+          Value: smart-employee-onboarding
+        - Key: Environment
+          Value: !Ref Stage
+
+  # ===========================================================================
+  # LAMBDA FUNCTIONS
+  # ===========================================================================
   PlaceholderFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub "onboarding-placeholder-${Stage}"
       CodeUri: backend/functions/placeholder/
       Handler: app.lambda_handler
-      Runtime: python3.12
-      Timeout: 10
-      MemorySize: 128
       Role: !GetAtt PlaceholderFunctionRole.Arn
-      Environment:
-        Variables:
-          STAGE: !Ref Stage
-          EMPLOYEE_TABLE_NAME: !Ref EmployeeProfileTable
-          DOCUMENTS_BUCKET_NAME: !Ref DocumentsBucket
       Tags:
         Project: smart-employee-onboarding
         Environment: !Ref Stage
 
+  CreateEmployeeProfileFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "onboarding-create-employee-profile-${Stage}"
+      CodeUri: backend/functions/createEmployeeProfile/
+      Handler: app.lambda_handler
+      Role: !GetAtt CreateEmployeeProfileFunctionRole.Arn
+      Environment:
+        Variables:
+          PROVISION_FUNCTION_NAME: !Sub "onboarding-provision-cognito-user-${Stage}"
+      Events:
+        CreateEmployee:
+          Type: Api
+          Properties:
+            RestApiId: !Ref OnboardingApi
+            Path: /employees
+            Method: post
+      Tags:
+        Project: smart-employee-onboarding
+        Environment: !Ref Stage
+
+  ProvisionCognitoUserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "onboarding-provision-cognito-user-${Stage}"
+      CodeUri: backend/functions/provisionCognitoUser/
+      Handler: app.lambda_handler
+      Role: !GetAtt ProvisionCognitoUserFunctionRole.Arn
+      Environment:
+        Variables:
+          USER_POOL_ID: !Ref CognitoUserPool
+      Tags:
+        Project: smart-employee-onboarding
+        Environment: !Ref Stage
+
+# =============================================================================
+# OUTPUTS
+# =============================================================================
 Outputs:
   DeploymentStage:
     Description: Active deployment stage
     Value: !Ref Stage
+
+  ApiEndpoint:
+    Description: Root API Gateway Endpoint URL
+    Value: !Sub "https://${OnboardingApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+    Export:
+      Name: !Sub "${AWS::StackName}-ApiEndpoint"
+
+  CreateEmployeeApiUrl:
+    Description: Endpoint URL for POST /employees
+    Value: !Sub "https://${OnboardingApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/employees"
+    Export:
+      Name: !Sub "${AWS::StackName}-CreateEmployeeApiUrl"
 
   EmployeeProfileTableName:
     Description: DynamoDB Table Name for Employee Profiles
@@ -225,6 +453,24 @@ Outputs:
     Value: !GetAtt EmployeeProfileTable.Arn
     Export:
       Name: !Sub "${AWS::StackName}-EmployeeProfileTableArn"
+
+  CognitoUserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref CognitoUserPool
+    Export:
+      Name: !Sub "${AWS::StackName}-CognitoUserPoolId"
+
+  CognitoUserPoolArn:
+    Description: Cognito User Pool ARN
+    Value: !GetAtt CognitoUserPool.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-CognitoUserPoolArn"
+
+  CognitoUserPoolClientId:
+    Description: Cognito User Pool App Client ID (Frontend SPA)
+    Value: !Ref CognitoUserPoolClient
+    Export:
+      Name: !Sub "${AWS::StackName}-CognitoUserPoolClientId"
 
   DocumentsBucketName:
     Description: S3 Bucket Name for Private Document Storage
@@ -250,8 +496,14 @@ Outputs:
     Export:
       Name: !Sub "${AWS::StackName}-FrontendWebsiteURL"
 
-  PlaceholderFunctionArn:
-    Description: Placeholder Lambda Function ARN
-    Value: !GetAtt PlaceholderFunction.Arn
+  CreateEmployeeProfileFunctionArn:
+    Description: createEmployeeProfile Lambda Function ARN
+    Value: !GetAtt CreateEmployeeProfileFunction.Arn
     Export:
-      Name: !Sub "${AWS::StackName}-PlaceholderFunctionArn"
+      Name: !Sub "${AWS::StackName}-CreateEmployeeProfileFunctionArn"
+
+  ProvisionCognitoUserFunctionArn:
+    Description: provisionCognitoUser Lambda Function ARN
+    Value: !GetAtt ProvisionCognitoUserFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-ProvisionCognitoUserFunctionArn"

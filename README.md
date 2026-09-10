@@ -112,9 +112,53 @@ When prompted during `--guided` setup:
 
 ---
 
+## Phase 1 — Employee Record & Identity (Complete)
+
+### API Contract: `POST /employees`
+Endpoint created on Amazon API Gateway:
+`POST https://{api-id}.execute-api.ap-south-1.amazonaws.com/{stage}/employees`
+
+**Request Payload:**
+```json
+{
+  "name": "Jane Doe",
+  "email": "jane.doe@example.com",
+  "department": "Engineering",
+  "role": "Software Engineer",
+  "manager": "Alex Manager",
+  "joining_date": "2026-10-01",
+  "employment_type": "full-time"
+}
+```
+
+**Response (`201 Created`):**
+```json
+{
+  "employee_id": "8d3e9112-c2e6-42f1-bd12-f7cb2f11ec4b",
+  "status": "created"
+}
+```
+
+### Sample `curl` Command:
+```bash
+curl -X POST "https://<API_ID>.execute-api.ap-south-1.amazonaws.com/dev/employees" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Jane Doe",
+    "email": "jane.doe@example.com",
+    "department": "Engineering",
+    "role": "Software Engineer",
+    "manager": "Alex Manager",
+    "joining_date": "2026-10-01",
+    "employment_type": "full-time"
+  }'
+```
+
+---
+
 ## Phase Index
 - **Phase 0 — Project Setup & Environment** (Complete)
-- **Phase 1 — Employee Record & Identity**
+- **Phase 1 — Employee Record & Identity** (Complete)
 - **Phase 2 — Onboarding Workflow Engine**
 - **Phase 3 — Document Collection**
 - **Phase 4 — Frontend**
