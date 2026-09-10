@@ -156,10 +156,53 @@ curl -X POST "https://<API_ID>.execute-api.ap-south-1.amazonaws.com/dev/employee
 
 ---
 
+## Phase 2 — Onboarding Workflow Engine (Complete)
+
+### Step Functions State Machine: `onboarding-state-machine`
+- **Definition**: [`backend/statemachines/onboarding-state-machine.asl.json`](file:///Users/parthchoutapelly/Desktop/Smart%20Employee%20Onboarding%20&%20Identity%20Service/backend/statemachines/onboarding-state-machine.asl.json)
+- **Flow**: `DocumentCollection` -> `ITProvisioning` -> `PolicySignOff` -> `ManagerIntro` -> `Complete`
+- **Resilience**: 3 retries per stage with exponential backoff (`IntervalSeconds: 2`, `BackoffRate: 2.0`), fallback error catching into `Failed` state.
+- **Input Contract**:
+  ```json
+  { "employee_id": "<uuid>" }
+  ```
+
+### Stage Lambda Functions:
+- `onboarding-stage-document-collection-${Stage}`: updates `onboarding_status.document_collection` to `complete`.
+- `onboarding-stage-it-provisioning-${Stage}`: updates `onboarding_status.it_provisioning` to `complete`.
+- `onboarding-stage-policy-signoff-${Stage}`: updates `onboarding_status.policy_signoff` to `complete`.
+- `onboarding-stage-manager-intro-${Stage}`: updates `onboarding_status.manager_intro` to `complete`.
+
+### Status API Contract: `GET /onboarding/{employee_id}/status`
+- **Endpoint**: `GET https://{api-id}.execute-api.ap-south-1.amazonaws.com/{stage}/onboarding/{employee_id}/status`
+- **Response (`200 OK`)**:
+  ```json
+  {
+    "employee_id": "8d3e9112-c2e6-42f1-bd12-f7cb2f11ec4b",
+    "onboarding_status": {
+      "document_collection": "complete",
+      "it_provisioning": "in_progress",
+      "policy_signoff": "pending",
+      "manager_intro": "pending"
+    }
+  }
+  ```
+- **Sample `curl` Command**:
+  ```bash
+  curl -X GET "https://<API_ID>.execute-api.ap-south-1.amazonaws.com/dev/onboarding/8d3e9112-c2e6-42f1-bd12-f7cb2f11ec4b/status"
+  ```
+
+### Reminder Mechanism:
+- **Function**: `onboarding-send-reminder-${Stage}` (`backend/functions/sendReminderEmail/app.py`).
+- **Trigger**: EventBridge daily schedule (`rate(1 day)`).
+- **Behavior**: Scans `EmployeeProfileTable`, computes pending stage duration against `REMINDER_THRESHOLD_HOURS` (defaults to 24), dispatches SES notifications to the relevant party (new hire, IT, manager).
+
+---
+
 ## Phase Index
 - **Phase 0 — Project Setup & Environment** (Complete)
 - **Phase 1 — Employee Record & Identity** (Complete)
-- **Phase 2 — Onboarding Workflow Engine**
+- **Phase 2 — Onboarding Workflow Engine** (Complete)
 - **Phase 3 — Document Collection**
 - **Phase 4 — Frontend**
 - **Phase 5 — Testing & Integration**

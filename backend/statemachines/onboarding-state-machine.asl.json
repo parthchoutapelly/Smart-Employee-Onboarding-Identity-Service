@@ -1,0 +1,122 @@
+{
+  "Comment": "Smart Employee Onboarding & Identity Service - Multi-Stage Workflow Orchestration State Machine",
+  "StartAt": "DocumentCollection",
+  "States": {
+    "DocumentCollection": {
+      "Type": "Task",
+      "Resource": "${StageDocumentCollectionArn}",
+      "Parameters": {
+        "employee_id.$": "$.employee_id"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "Failed"
+        }
+      ],
+      "Next": "ITProvisioning"
+    },
+    "ITProvisioning": {
+      "Type": "Task",
+      "Resource": "${StageITProvisioningArn}",
+      "Parameters": {
+        "employee_id.$": "$.employee_id"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "Failed"
+        }
+      ],
+      "Next": "PolicySignOff"
+    },
+    "PolicySignOff": {
+      "Type": "Task",
+      "Resource": "${StagePolicySignOffArn}",
+      "Parameters": {
+        "employee_id.$": "$.employee_id"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "Failed"
+        }
+      ],
+      "Next": "ManagerIntro"
+    },
+    "ManagerIntro": {
+      "Type": "Task",
+      "Resource": "${StageManagerIntroArn}",
+      "Parameters": {
+        "employee_id.$": "$.employee_id"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "Failed"
+        }
+      ],
+      "Next": "Complete"
+    },
+    "Complete": {
+      "Type": "Succeed"
+    },
+    "Failed": {
+      "Type": "Fail",
+      "Error": "OnboardingWorkflowFailed",
+      "Cause": "A stage in the onboarding state machine failed after retries."
+    }
+  }
+}

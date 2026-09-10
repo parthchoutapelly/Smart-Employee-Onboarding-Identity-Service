@@ -2,8 +2,9 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
   Smart Employee Onboarding & Identity Service
-  Phase 0 & Phase 1 — Infrastructure, Storage, Cognito User Pool, DynamoDB EmployeeProfile,
-  API Gateway (/employees), and least-privilege Lambda functions.
+  Phase 0, Phase 1 & Phase 2 — Core Infrastructure, Storage, Cognito Identity,
+  DynamoDB EmployeeProfile, API Gateway (/employees, /onboarding/{employee_id}/status),
+  AWS Step Functions Multi-Stage Workflow Engine, Reminder Mechanism, and least-privilege Lambda functions.
 
 Parameters:
   Stage:
@@ -203,6 +204,7 @@ Resources:
             Welcome to the team! Your employee onboarding account has been created.<br/><br/>
             Username: {username}<br/>
             Temporary Password: {####}<br/><br/>
+            Please log in to the onboarding portal to complete your onboarding process.
       UserPoolTags:
         Project: smart-employee-onboarding
         Environment: !Ref Stage
@@ -373,6 +375,267 @@ Resources:
         - Key: Environment
           Value: !Ref Stage
 
+  # Phase 2 Stage Lambda Roles
+  StageDocumentCollectionFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "onboarding-stage-doc-coll-role-${Stage}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudWatchLogsScopedPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/onboarding-stage-document-collection-${Stage}:*"
+        - PolicyName: DynamoDBStageUpdatePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:UpdateItem
+                  - dynamodb:GetItem
+                Resource: !GetAtt EmployeeProfileTable.Arn
+      Tags:
+        - Key: Project
+          Value: smart-employee-onboarding
+        - Key: Environment
+          Value: !Ref Stage
+
+  StageITProvisioningFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "onboarding-stage-it-prov-role-${Stage}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudWatchLogsScopedPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/onboarding-stage-it-provisioning-${Stage}:*"
+        - PolicyName: DynamoDBStageUpdatePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:UpdateItem
+                  - dynamodb:GetItem
+                Resource: !GetAtt EmployeeProfileTable.Arn
+      Tags:
+        - Key: Project
+          Value: smart-employee-onboarding
+        - Key: Environment
+          Value: !Ref Stage
+
+  StagePolicySignOffFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "onboarding-stage-policy-role-${Stage}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudWatchLogsScopedPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/onboarding-stage-policy-signoff-${Stage}:*"
+        - PolicyName: DynamoDBStageUpdatePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:UpdateItem
+                  - dynamodb:GetItem
+                Resource: !GetAtt EmployeeProfileTable.Arn
+      Tags:
+        - Key: Project
+          Value: smart-employee-onboarding
+        - Key: Environment
+          Value: !Ref Stage
+
+  StageManagerIntroFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "onboarding-stage-mgr-intro-role-${Stage}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudWatchLogsScopedPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/onboarding-stage-manager-intro-${Stage}:*"
+        - PolicyName: DynamoDBStageUpdatePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:UpdateItem
+                  - dynamodb:GetItem
+                Resource: !GetAtt EmployeeProfileTable.Arn
+      Tags:
+        - Key: Project
+          Value: smart-employee-onboarding
+        - Key: Environment
+          Value: !Ref Stage
+
+  GetOnboardingStatusFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "onboarding-get-status-role-${Stage}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudWatchLogsScopedPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/onboarding-get-status-${Stage}:*"
+        - PolicyName: DynamoDBReadStatusPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                Resource: !GetAtt EmployeeProfileTable.Arn
+      Tags:
+        - Key: Project
+          Value: smart-employee-onboarding
+        - Key: Environment
+          Value: !Ref Stage
+
+  SendReminderEmailFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "onboarding-send-reminder-role-${Stage}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudWatchLogsScopedPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/onboarding-send-reminder-${Stage}:*"
+        - PolicyName: DynamoDBScanForRemindersPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:Scan
+                  - dynamodb:GetItem
+                Resource: !GetAtt EmployeeProfileTable.Arn
+        - PolicyName: SESSendReminderPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: "*"
+      Tags:
+        - Key: Project
+          Value: smart-employee-onboarding
+        - Key: Environment
+          Value: !Ref Stage
+
+  OnboardingStateMachineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "onboarding-state-machine-role-${Stage}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeStageLambdaFunctions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt StageDocumentCollectionFunction.Arn
+                  - !GetAtt StageITProvisioningFunction.Arn
+                  - !GetAtt StagePolicySignOffFunction.Arn
+                  - !GetAtt StageManagerIntroFunction.Arn
+      Tags:
+        - Key: Project
+          Value: smart-employee-onboarding
+        - Key: Environment
+          Value: !Ref Stage
+
   # ===========================================================================
   # LAMBDA FUNCTIONS
   # ===========================================================================
@@ -422,6 +685,110 @@ Resources:
         Project: smart-employee-onboarding
         Environment: !Ref Stage
 
+  # Phase 2 Workflow Stage Functions
+  StageDocumentCollectionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "onboarding-stage-document-collection-${Stage}"
+      CodeUri: backend/functions/stageDocumentCollection/
+      Handler: app.lambda_handler
+      Role: !GetAtt StageDocumentCollectionFunctionRole.Arn
+      Tags:
+        Project: smart-employee-onboarding
+        Environment: !Ref Stage
+
+  StageITProvisioningFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "onboarding-stage-it-provisioning-${Stage}"
+      CodeUri: backend/functions/stageITProvisioning/
+      Handler: app.lambda_handler
+      Role: !GetAtt StageITProvisioningFunctionRole.Arn
+      Tags:
+        Project: smart-employee-onboarding
+        Environment: !Ref Stage
+
+  StagePolicySignOffFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "onboarding-stage-policy-signoff-${Stage}"
+      CodeUri: backend/functions/stagePolicySignOff/
+      Handler: app.lambda_handler
+      Role: !GetAtt StagePolicySignOffFunctionRole.Arn
+      Tags:
+        Project: smart-employee-onboarding
+        Environment: !Ref Stage
+
+  StageManagerIntroFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "onboarding-stage-manager-intro-${Stage}"
+      CodeUri: backend/functions/stageManagerIntro/
+      Handler: app.lambda_handler
+      Role: !GetAtt StageManagerIntroFunctionRole.Arn
+      Tags:
+        Project: smart-employee-onboarding
+        Environment: !Ref Stage
+
+  GetOnboardingStatusFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "onboarding-get-status-${Stage}"
+      CodeUri: backend/functions/getOnboardingStatus/
+      Handler: app.lambda_handler
+      Role: !GetAtt GetOnboardingStatusFunctionRole.Arn
+      Events:
+        GetStatus:
+          Type: Api
+          Properties:
+            RestApiId: !Ref OnboardingApi
+            Path: /onboarding/{employee_id}/status
+            Method: get
+      Tags:
+        Project: smart-employee-onboarding
+        Environment: !Ref Stage
+
+  SendReminderEmailFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "onboarding-send-reminder-${Stage}"
+      CodeUri: backend/functions/sendReminderEmail/
+      Handler: app.lambda_handler
+      Role: !GetAtt SendReminderEmailFunctionRole.Arn
+      Environment:
+        Variables:
+          REMINDER_THRESHOLD_HOURS: "24"
+          SES_SENDER_EMAIL: "onboarding-noreply@example.com"
+      Events:
+        DailyReminderSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: "rate(1 day)"
+            Name: !Sub "onboarding-daily-reminder-${Stage}"
+            Description: "Trigger check for overdue onboarding stages"
+            Enabled: true
+      Tags:
+        Project: smart-employee-onboarding
+        Environment: !Ref Stage
+
+  # ===========================================================================
+  # STEP FUNCTIONS STATE MACHINE (Phase 2)
+  # ===========================================================================
+  OnboardingStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: !Sub "onboarding-state-machine-${Stage}"
+      DefinitionUri: backend/statemachines/onboarding-state-machine.asl.json
+      DefinitionSubstitutions:
+        StageDocumentCollectionArn: !GetAtt StageDocumentCollectionFunction.Arn
+        StageITProvisioningArn: !GetAtt StageITProvisioningFunction.Arn
+        StagePolicySignOffArn: !GetAtt StagePolicySignOffFunction.Arn
+        StageManagerIntroArn: !GetAtt StageManagerIntroFunction.Arn
+      Role: !GetAtt OnboardingStateMachineRole.Arn
+      Tags:
+        Project: smart-employee-onboarding
+        Environment: !Ref Stage
+
 # =============================================================================
 # OUTPUTS
 # =============================================================================
@@ -441,6 +808,12 @@ Outputs:
     Value: !Sub "https://${OnboardingApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/employees"
     Export:
       Name: !Sub "${AWS::StackName}-CreateEmployeeApiUrl"
+
+  GetOnboardingStatusApiUrl:
+    Description: Endpoint URL for GET /onboarding/{employee_id}/status
+    Value: !Sub "https://${OnboardingApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/onboarding/{employee_id}/status"
+    Export:
+      Name: !Sub "${AWS::StackName}-GetOnboardingStatusApiUrl"
 
   EmployeeProfileTableName:
     Description: DynamoDB Table Name for Employee Profiles
@@ -496,6 +869,12 @@ Outputs:
     Export:
       Name: !Sub "${AWS::StackName}-FrontendWebsiteURL"
 
+  OnboardingStateMachineArn:
+    Description: AWS Step Functions Onboarding Workflow State Machine ARN
+    Value: !Ref OnboardingStateMachine
+    Export:
+      Name: !Sub "${AWS::StackName}-OnboardingStateMachineArn"
+
   CreateEmployeeProfileFunctionArn:
     Description: createEmployeeProfile Lambda Function ARN
     Value: !GetAtt CreateEmployeeProfileFunction.Arn
@@ -507,3 +886,39 @@ Outputs:
     Value: !GetAtt ProvisionCognitoUserFunction.Arn
     Export:
       Name: !Sub "${AWS::StackName}-ProvisionCognitoUserFunctionArn"
+
+  GetOnboardingStatusFunctionArn:
+    Description: getOnboardingStatus Lambda Function ARN
+    Value: !GetAtt GetOnboardingStatusFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-GetOnboardingStatusFunctionArn"
+
+  SendReminderEmailFunctionArn:
+    Description: sendReminderEmail Lambda Function ARN
+    Value: !GetAtt SendReminderEmailFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-SendReminderEmailFunctionArn"
+
+  StageDocumentCollectionFunctionArn:
+    Description: stageDocumentCollection Lambda Function ARN
+    Value: !GetAtt StageDocumentCollectionFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-StageDocumentCollectionFunctionArn"
+
+  StageITProvisioningFunctionArn:
+    Description: stageITProvisioning Lambda Function ARN
+    Value: !GetAtt StageITProvisioningFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-StageITProvisioningFunctionArn"
+
+  StagePolicySignOffFunctionArn:
+    Description: stagePolicySignOff Lambda Function ARN
+    Value: !GetAtt StagePolicySignOffFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-StagePolicySignOffFunctionArn"
+
+  StageManagerIntroFunctionArn:
+    Description: stageManagerIntro Lambda Function ARN
+    Value: !GetAtt StageManagerIntroFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-StageManagerIntroFunctionArn"
