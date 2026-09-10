@@ -153,6 +153,19 @@ Resources:
           Value: !Ref Stage
 
   # ===========================================================================
+  # SNS NOTIFICATION TOPIC (Phase 3)
+  # ===========================================================================
+  OnboardingNotificationsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "onboarding-hr-notifications-${Stage}"
+      Tags:
+        - Key: Project
+          Value: smart-employee-onboarding
+        - Key: Environment
+          Value: !Ref Stage
+
+  # ===========================================================================
   # COGNITO USER POOL & APP CLIENT (Phase 1)
   # ===========================================================================
   CognitoUserPool:
@@ -636,6 +649,97 @@ Resources:
         - Key: Environment
           Value: !Ref Stage
 
+  GetUploadUrlFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "onboarding-get-upload-url-role-${Stage}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudWatchLogsScopedPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/onboarding-get-upload-url-${Stage}:*"
+        - PolicyName: S3PutObjectScopedPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub "arn:aws:s3:::onboarding-documents-${Stage}-${AWS::AccountId}/*"
+      Tags:
+        - Key: Project
+          Value: smart-employee-onboarding
+        - Key: Environment
+          Value: !Ref Stage
+
+  ValidateDocumentFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "onboarding-validate-doc-role-${Stage}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudWatchLogsScopedPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/onboarding-validate-document-${Stage}:*"
+        - PolicyName: S3DocumentValidationScopedPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:HeadObject
+                  - s3:DeleteObject
+                Resource: !Sub "arn:aws:s3:::onboarding-documents-${Stage}-${AWS::AccountId}/documents/*"
+        - PolicyName: DynamoDBDocumentUpdatePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt EmployeeProfileTable.Arn
+        - PolicyName: SNSPublishPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref OnboardingNotificationsTopic
+      Tags:
+        - Key: Project
+          Value: smart-employee-onboarding
+        - Key: Environment
+          Value: !Ref Stage
+
   # ===========================================================================
   # LAMBDA FUNCTIONS
   # ===========================================================================
@@ -767,6 +871,51 @@ Resources:
             Name: !Sub "onboarding-daily-reminder-${Stage}"
             Description: "Trigger check for overdue onboarding stages"
             Enabled: true
+      Tags:
+        Project: smart-employee-onboarding
+        Environment: !Ref Stage
+
+  # Phase 3 Document Collection Functions
+  GetUploadUrlFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "onboarding-get-upload-url-${Stage}"
+      CodeUri: backend/functions/getUploadUrl/
+      Handler: app.lambda_handler
+      Role: !GetAtt GetUploadUrlFunctionRole.Arn
+      Events:
+        PostUploadUrl:
+          Type: Api
+          Properties:
+            RestApiId: !Ref OnboardingApi
+            Path: /documents/upload-url
+            Method: post
+      Tags:
+        Project: smart-employee-onboarding
+        Environment: !Ref Stage
+
+  ValidateDocumentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "onboarding-validate-document-${Stage}"
+      CodeUri: backend/functions/validateDocument/
+      Handler: app.lambda_handler
+      Role: !GetAtt ValidateDocumentFunctionRole.Arn
+      Environment:
+        Variables:
+          DOCUMENTS_BUCKET_NAME: !Sub "onboarding-documents-${Stage}-${AWS::AccountId}"
+          NOTIFICATIONS_TOPIC_ARN: !Ref OnboardingNotificationsTopic
+      Events:
+        DocumentUpload:
+          Type: S3
+          Properties:
+            Bucket: !Ref DocumentsBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: documents/
       Tags:
         Project: smart-employee-onboarding
         Environment: !Ref Stage
@@ -922,3 +1071,27 @@ Outputs:
     Value: !GetAtt StageManagerIntroFunction.Arn
     Export:
       Name: !Sub "${AWS::StackName}-StageManagerIntroFunctionArn"
+
+  OnboardingNotificationsTopicArn:
+    Description: SNS Topic ARN for HR Onboarding Notifications
+    Value: !Ref OnboardingNotificationsTopic
+    Export:
+      Name: !Sub "${AWS::StackName}-OnboardingNotificationsTopicArn"
+
+  GetUploadUrlApiUrl:
+    Description: Endpoint URL for POST /documents/upload-url
+    Value: !Sub "https://${OnboardingApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/documents/upload-url"
+    Export:
+      Name: !Sub "${AWS::StackName}-GetUploadUrlApiUrl"
+
+  GetUploadUrlFunctionArn:
+    Description: getUploadUrl Lambda Function ARN
+    Value: !GetAtt GetUploadUrlFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-GetUploadUrlFunctionArn"
+
+  ValidateDocumentFunctionArn:
+    Description: validateDocument Lambda Function ARN
+    Value: !GetAtt ValidateDocumentFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-ValidateDocumentFunctionArn"

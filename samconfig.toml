@@ -1,0 +1,20 @@
+version = 0.1
+
+[default]
+[default.global.parameters]
+stack_name = "onboarding-service-dev"
+region = "ap-south-1"
+profile = "docvault"
+
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.validate.parameters]
+lint = true
+
+[default.deploy.parameters]
+capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+confirm_changeset = false
+s3_bucket = "docvault-sam-artifacts-dev-331262815638-ap-south-1-an"
+parameter_overrides = "Stage=\"dev\""

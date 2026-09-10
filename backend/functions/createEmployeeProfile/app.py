@@ -89,7 +89,12 @@ def lambda_handler(event, context):
             "document_collection": "pending",
             "it_provisioning": "pending",
             "policy_signoff": "pending",
-            "manager_intro": "pending"
+            "manager_intro": "pending",
+            "documents": {
+                "id_proof": "pending",
+                "degree_certificate": "pending",
+                "offer_letter": "pending"
+            }
         },
         "created_at": created_at
     }

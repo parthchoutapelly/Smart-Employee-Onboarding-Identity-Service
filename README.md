@@ -199,11 +199,51 @@ curl -X POST "https://<API_ID>.execute-api.ap-south-1.amazonaws.com/dev/employee
 
 ---
 
+## Phase 3 — Document Collection (Complete)
+
+### Upload URL API Contract: `POST /documents/upload-url`
+- **Endpoint**: `POST https://{api-id}.execute-api.ap-south-1.amazonaws.com/{stage}/documents/upload-url`
+- **Request Payload**:
+  ```json
+  {
+    "employee_id": "8d3e9112-c2e6-42f1-bd12-f7cb2f11ec4b",
+    "document_type": "id_proof",
+    "file_extension": "pdf"
+  }
+  ```
+  - Allowed `document_type`: `id_proof`, `degree_certificate`, `offer_letter`
+  - Allowed `file_extension`: `pdf`, `jpg`, `png`
+- **Response (`200 OK`)**:
+  ```json
+  {
+    "upload_url": "https://onboarding-documents-dev-331262815638.s3.ap-south-1.amazonaws.com/documents/8d3e9112-c2e6-42f1-bd12-f7cb2f11ec4b/id_proof.pdf?AWSAccessKeyId=...",
+    "s3_key": "documents/8d3e9112-c2e6-42f1-bd12-f7cb2f11ec4b/id_proof.pdf"
+  }
+  ```
+- **Presigned URL Expiration**: 900 seconds (15 minutes).
+
+### Document Validation & Trigger (`onboarding-validate-document-${Stage}`):
+- **Trigger**: S3 `ObjectCreated:*` with prefix `documents/` on `DocumentsBucket`.
+- **Validation Rules**:
+  - Validates document type in `[id_proof, degree_certificate, offer_letter]`.
+  - Validates extension in `[pdf, jpg, png]`.
+  - **File Size Rule**: Strictly `< 10 * 1024 * 1024` bytes (10,485,760 bytes).
+- **Invalid Upload Handling**:
+  - Offending S3 object is immediately deleted.
+  - Document status updated to `rejected` in DynamoDB with a descriptive reason.
+- **Valid Upload Handling**:
+  - Updates `onboarding_status.documents.<document_type>` to `verified` with timestamp.
+  - Evaluates if all 3 required documents (`id_proof`, `degree_certificate`, `offer_letter`) are verified.
+  - Atomically marks `onboarding_status.document_collection = complete`.
+  - Publishes `all_documents_verified` event to SNS topic `onboarding-hr-notifications-${Stage}` (deduplicated against retries).
+
+---
+
 ## Phase Index
 - **Phase 0 — Project Setup & Environment** (Complete)
 - **Phase 1 — Employee Record & Identity** (Complete)
 - **Phase 2 — Onboarding Workflow Engine** (Complete)
-- **Phase 3 — Document Collection**
+- **Phase 3 — Document Collection** (Complete)
 - **Phase 4 — Frontend**
 - **Phase 5 — Testing & Integration**
 - **Phase 6 — Deliverables & Documentation**

@@ -83,12 +83,11 @@ class TestCreateEmployeeProfile(unittest.TestCase):
         self.assertEqual(item["manager"], "Alex Manager")
         self.assertEqual(item["joining_date"], "2026-10-01")
         self.assertEqual(item["employment_type"], "full-time")
-        self.assertEqual(item["onboarding_status"], {
-            "document_collection": "pending",
-            "it_provisioning": "pending",
-            "policy_signoff": "pending",
-            "manager_intro": "pending"
-        })
+        self.assertEqual(item["onboarding_status"]["document_collection"], "pending")
+        self.assertEqual(item["onboarding_status"]["it_provisioning"], "pending")
+        self.assertEqual(item["onboarding_status"]["policy_signoff"], "pending")
+        self.assertEqual(item["onboarding_status"]["manager_intro"], "pending")
+        self.assertIn("documents", item["onboarding_status"])
         self.assertIn("created_at", item)
 
         # Verify asynchronous invocation of provisionCognitoUser
