@@ -75,9 +75,7 @@ Strict naming conventions are enforced across all phases to align with prior HRM
 ├── frontend/
 │   ├── portal/                    # New Hire Onboarding Portal (React + Vite)
 │   └── admin/                     # HR Admin Dashboard (React + Vite)
-├── docs/                          # Architecture diagrams, ER diagrams, cost models
-├── phase-0-setup.md               # Phase 0 task spec
-└── phase-1-employee-identity.md ... phase-6-deliverables.md
+└── docs/                          # Architecture diagrams, ER diagrams, cost models
 ```
 
 ---
@@ -240,12 +238,11 @@ curl -X POST "https://<API_ID>.execute-api.ap-south-1.amazonaws.com/dev/employee
 ---
 
 ## Phase Index
-- **Phase 0 — Project Setup & Environment** (Complete)
-- **Phase 1 — Employee Record & Identity** (Complete)
-- **Phase 2 — Onboarding Workflow Engine** (Complete)
-- **Phase 3 — Document Collection** (Complete)
-- **Phase 4 — Frontend**
-- **Phase 5 — Testing & Integration**
-- **Phase 6 — Deliverables & Documentation**
 
-Each phase file is written as a self-contained task spec (context, tasks, technical contracts, acceptance criteria) so it can be handed to an automation agent one phase at a time.
+- **Phase 0 — Project Setup & Environment** — ✅ Complete
+- **Phase 1 — Employee Record & Identity** — ✅ Complete
+- **Phase 2 — Onboarding Workflow Engine** — ✅ Complete
+- **Phase 3 — Document Collection** — ✅ Complete
+- **Phase 4 — Frontend** — ⏳ Upcoming
+- **Phase 5 — Testing & Integration** — ⏳ Upcoming
+- **Phase 6 — Deliverables & Documentation** — ⏳ Upcoming

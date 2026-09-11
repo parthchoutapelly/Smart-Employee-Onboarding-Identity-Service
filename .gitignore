@@ -69,3 +69,4 @@ dist-ssr/
 .idea/
 *.sublime-project
 *.sublime-workspace
+phase-*.md
