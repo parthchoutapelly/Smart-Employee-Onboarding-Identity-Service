@@ -15,7 +15,7 @@ async function request(endpoint, options = {}) {
   try {
     const token = await getAuthToken();
     if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
+      headers['Authorization'] = token;
     }
   } catch (err) {
     console.debug('No auth token attached:', err);

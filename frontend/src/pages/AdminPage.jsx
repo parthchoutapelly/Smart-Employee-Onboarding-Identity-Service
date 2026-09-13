@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import {
   UserPlus,
   Search,
@@ -15,6 +16,7 @@ import {
   FileCheck,
   AlertTriangle
 } from 'lucide-react';
+import { useAuth } from '../auth/AuthContext';
 import { createEmployee, getOnboardingStatus, listOnboardingEmployees } from '../services/api';
 import { ProgressBar } from '../components/ProgressBar';
 import { StageCard } from '../components/StageCard';
@@ -23,6 +25,7 @@ import { StatusBadge } from '../components/StatusBadge';
 const RECENT_EMPLOYEES_KEY = 'seo_recent_tracked_employees';
 
 export function AdminPage() {
+  const { user, loading: authLoading } = useAuth();
   const [activeTab, setActiveTab] = useState('search'); // 'search' | 'register' | 'directory'
 
   // Search State
@@ -107,6 +110,9 @@ export function AdminPage() {
   };
 
   const fetchPipeline = async () => {
+    if (!user) {
+      return;
+    }
     setLoadingPipeline(true);
     setPipelineError('');
     try {
@@ -122,10 +128,14 @@ export function AdminPage() {
   };
 
   useEffect(() => {
-    if (activeTab === 'directory') {
-      fetchPipeline();
+    if (activeTab === 'directory' && !authLoading) {
+      if (user) {
+        fetchPipeline();
+      } else {
+        setLoadingPipeline(false);
+      }
     }
-  }, [activeTab]);
+  }, [activeTab, authLoading, user]);
 
   const handleInspectCandidate = (empId) => {
     setSearchId(empId);
@@ -684,8 +694,41 @@ export function AdminPage() {
       {/* TAB 3: Pipeline Directory */}
       {activeTab === 'directory' && (
         <div>
-          {/* Header Controls */}
-          <div className="card" style={{ marginBottom: '1.25rem' }}>
+          {authLoading ? (
+            <div className="card" style={{ textAlign: 'center', padding: '3rem 1rem' }}>
+              <span className="spinner" style={{ width: '2rem', height: '2rem', marginBottom: '1rem', color: 'var(--primary-400)' }} />
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: 0 }}>
+                Checking authentication session...
+              </p>
+            </div>
+          ) : !user ? (
+            <div className="card" style={{ textAlign: 'center', padding: '3.5rem 1.5rem', maxWidth: '520px', margin: '0 auto' }}>
+              <div style={{
+                width: '48px',
+                height: '48px',
+                borderRadius: '50%',
+                background: 'rgba(99, 102, 241, 0.15)',
+                color: 'var(--primary-400)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: '1rem'
+              }}>
+                <Shield size={24} />
+              </div>
+              <h3>Authentication Required</h3>
+              <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', margin: '0.5rem 0 1.5rem' }}>
+                The Pipeline Directory is protected by Cognito User Pool authorization. Please sign in with an authorized HR or administrator account to view live employee records.
+              </p>
+              <Link to="/portal" className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', textDecoration: 'none' }}>
+                <Shield size={16} />
+                <span>Sign In via Portal</span>
+              </Link>
+            </div>
+          ) : (
+            <>
+              {/* Header Controls */}
+              <div className="card" style={{ marginBottom: '1.25rem' }}>
             <div style={{
               display: 'flex',
               flexWrap: 'wrap',
@@ -969,6 +1012,8 @@ export function AdminPage() {
               </div>
             );
           })()}
+            </>
+          )}
         </div>
       )}
 
