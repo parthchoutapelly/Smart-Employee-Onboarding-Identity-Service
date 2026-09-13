@@ -605,6 +605,44 @@ Resources:
         - Key: Environment
           Value: !Ref Stage
 
+  # Phase 6: Least-privilege IAM role for listing/scanning employee onboarding pipeline
+  ListOnboardingEmployeesFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "onboarding-list-employees-role-${Stage}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudWatchLogsScopedPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/onboarding-list-employees-${Stage}:*"
+        - PolicyName: DynamoDBScanEmployeesPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:Scan
+                Resource: !GetAtt EmployeeProfileTable.Arn
+      Tags:
+        - Key: Project
+          Value: smart-employee-onboarding
+        - Key: Environment
+          Value: !Ref Stage
+
+
   SendReminderEmailFunctionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -940,6 +978,29 @@ Resources:
         Project: smart-employee-onboarding
         Environment: !Ref Stage
 
+  # Phase 6: Scans and lists employee onboarding records for HR admin pipeline directory
+  ListOnboardingEmployeesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "onboarding-list-employees-${Stage}"
+      CodeUri: backend/functions/listOnboardingEmployees/
+      Handler: app.lambda_handler
+      Role: !GetAtt ListOnboardingEmployeesFunctionRole.Arn
+      Environment:
+        Variables:
+          EMPLOYEE_TABLE_NAME: !Ref EmployeeProfileTable
+      Events:
+        ListPipeline:
+          Type: Api
+          Properties:
+            RestApiId: !Ref OnboardingApi
+            Path: /onboarding/pipeline
+            Method: get
+      Tags:
+        Project: smart-employee-onboarding
+        Environment: !Ref Stage
+
+
   SendReminderEmailFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -1185,3 +1246,15 @@ Outputs:
     Value: !GetAtt ValidateDocumentFunction.Arn
     Export:
       Name: !Sub "${AWS::StackName}-ValidateDocumentFunctionArn"
+
+  ListOnboardingEmployeesFunctionArn:
+    Description: listOnboardingEmployees Lambda Function ARN
+    Value: !GetAtt ListOnboardingEmployeesFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-ListOnboardingEmployeesFunctionArn"
+
+  ListPipelineApiUrl:
+    Description: Endpoint URL for GET /onboarding/pipeline
+    Value: !Sub "https://${OnboardingApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/onboarding/pipeline"
+    Export:
+      Name: !Sub "${AWS::StackName}-ListPipelineApiUrl"

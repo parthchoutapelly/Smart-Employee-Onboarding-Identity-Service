@@ -59,6 +59,7 @@ dist-ssr/
 
 # Environment Variables & Sensitive Configs
 .env
+.env.*
 .env.local
 .env.*.local
 *.pem

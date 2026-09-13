@@ -210,3 +210,31 @@ export async function uploadFileToS3(uploadUrl, file, onProgress, contentType) {
     xhr.send(file);
   });
 }
+
+/**
+ * Retrieve all employee onboarding pipeline statuses
+ * GET /onboarding/pipeline
+ */
+export async function listOnboardingEmployees() {
+  if (API_BASE_URL) {
+    return await request('/onboarding/pipeline', {
+      method: 'GET'
+    });
+  }
+
+  // Local fallback mock
+  await new Promise(r => setTimeout(r, 300));
+  const profiles = getMockProfiles();
+  return Object.values(profiles).map(p => ({
+    employee_id: p.employee_id,
+    name: p.name,
+    email: p.email,
+    department: p.department,
+    role: p.role,
+    manager: p.manager,
+    joining_date: p.joining_date,
+    employment_type: p.employment_type,
+    created_at: p.created_at,
+    onboarding_status: p.onboarding_status
+  }));
+}

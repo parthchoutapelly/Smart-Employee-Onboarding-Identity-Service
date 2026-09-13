@@ -195,7 +195,35 @@ curl -X POST "https://<API_ID>.execute-api.ap-south-1.amazonaws.com/dev/employee
   curl -X GET "https://<API_ID>.execute-api.ap-south-1.amazonaws.com/dev/onboarding/8d3e9112-c2e6-42f1-bd12-f7cb2f11ec4b/status"
   ```
 
+### Pipeline Directory API Contract: `GET /onboarding/pipeline`
+- **Endpoint**: `GET https://{api-id}.execute-api.ap-south-1.amazonaws.com/{stage}/onboarding/pipeline`
+- **Authorization**: Amazon Cognito User Pool Authorizer (Bearer Token)
+- **Function**: `onboarding-list-employees-${Stage}` (`backend/functions/listOnboardingEmployees/app.py`).
+- **Response (`200 OK`)**:
+  ```json
+  [
+    {
+      "employee_id": "8d3e9112-c2e6-42f1-bd12-f7cb2f11ec4b",
+      "name": "Jane Doe",
+      "email": "jane.doe@example.com",
+      "department": "Engineering",
+      "role": "Software Engineer",
+      "manager": "Alex Manager",
+      "joining_date": "2026-10-01",
+      "employment_type": "Full-time",
+      "created_at": "2026-09-13T10:00:00Z",
+      "onboarding_status": {
+        "document_collection": "complete",
+        "it_provisioning": "complete",
+        "policy_signoff": "complete",
+        "manager_intro": "complete"
+      }
+    }
+  ]
+  ```
+
 ### Reminder Mechanism:
+
 - **Function**: `onboarding-send-reminder-${Stage}` (`backend/functions/sendReminderEmail/app.py`).
 - **Trigger**: EventBridge daily schedule (`rate(1 day)`).
 - **Behavior**: Scans `EmployeeProfileTable`, computes pending stage duration against `REMINDER_THRESHOLD_HOURS` (defaults to 24), dispatches SES notifications to the relevant party (new hire, IT, manager).
@@ -268,7 +296,7 @@ curl -X POST "https://<API_ID>.execute-api.ap-south-1.amazonaws.com/dev/employee
    - `onboarding-state-machine` incorporates a polling loop (`WaitForDocuments` 30s backoff) until all 3 documents are verified by S3 event-driven validation.
 
 ### Automated Testing Suite
-- **Pytest**: 45 unit and integration tests across all phases (`tests/test_phase1.py` through `tests/test_phase5.py`).
+- **Pytest**: 51 unit and integration tests across all phases (`tests/test_phase1.py` through `tests/test_list_pipeline.py`).
 - **SAM Validation & Build**: Validated against SAM linter and verified full build with `sam build`.
 - **Frontend Build**: Production bundle compilation verified with `npm run build`.
 

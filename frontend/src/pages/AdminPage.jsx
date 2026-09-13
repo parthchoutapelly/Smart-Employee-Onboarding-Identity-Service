@@ -15,7 +15,7 @@ import {
   FileCheck,
   AlertTriangle
 } from 'lucide-react';
-import { createEmployee, getOnboardingStatus } from '../services/api';
+import { createEmployee, getOnboardingStatus, listOnboardingEmployees } from '../services/api';
 import { ProgressBar } from '../components/ProgressBar';
 import { StageCard } from '../components/StageCard';
 import { StatusBadge } from '../components/StatusBadge';
@@ -31,6 +31,13 @@ export function AdminPage() {
   const [statusResult, setStatusResult] = useState(null);
   const [searchError, setSearchError] = useState('');
   const [recentList, setRecentList] = useState([]);
+
+  // Pipeline Directory State
+  const [pipelineEmployees, setPipelineEmployees] = useState([]);
+  const [loadingPipeline, setLoadingPipeline] = useState(false);
+  const [pipelineError, setPipelineError] = useState('');
+  const [pipelineFilterDept, setPipelineFilterDept] = useState('All');
+  const [pipelineSearch, setPipelineSearch] = useState('');
 
   // Registration Form State
   const [formData, setFormData] = useState({
@@ -97,6 +104,33 @@ export function AdminPage() {
     } finally {
       setLoadingStatus(false);
     }
+  };
+
+  const fetchPipeline = async () => {
+    setLoadingPipeline(true);
+    setPipelineError('');
+    try {
+      const data = await listOnboardingEmployees();
+      const list = Array.isArray(data) ? data : (data?.employees || []);
+      setPipelineEmployees(list);
+    } catch (err) {
+      console.error('Failed to load onboarding pipeline:', err);
+      setPipelineError(err.message || 'Failed to retrieve employee onboarding pipeline records');
+    } finally {
+      setLoadingPipeline(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'directory') {
+      fetchPipeline();
+    }
+  }, [activeTab]);
+
+  const handleInspectCandidate = (empId) => {
+    setSearchId(empId);
+    setActiveTab('search');
+    handleLookup(empId);
   };
 
   const handleFormChange = (e) => {
@@ -647,48 +681,297 @@ export function AdminPage() {
         </div>
       )}
 
-      {/* TAB 3: Directory Notice (Honoring Backend Contract Constraints) */}
+      {/* TAB 3: Pipeline Directory */}
       {activeTab === 'directory' && (
-        <div className="card">
-          <div style={{
-            padding: '2rem',
-            textAlign: 'center',
-            maxWidth: '580px',
-            margin: '0 auto'
-          }}>
+        <div>
+          {/* Header Controls */}
+          <div className="card" style={{ marginBottom: '1.25rem' }}>
             <div style={{
-              width: '48px',
-              height: '48px',
-              borderRadius: '50%',
-              background: 'rgba(245, 158, 11, 0.15)',
-              color: '#f59e0b',
-              display: 'inline-flex',
+              display: 'flex',
+              flexWrap: 'wrap',
               alignItems: 'center',
-              justifyContent: 'center',
-              marginBottom: '1rem'
+              justifyContent: 'space-between',
+              gap: '1rem'
             }}>
-              <AlertTriangle size={24} />
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Users size={20} style={{ color: 'var(--primary-400)' }} />
+                  Candidate Onboarding Directory
+                </h3>
+                <p style={{ margin: '0.35rem 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  Live multi-stage onboarding status across all registered employees.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem' }}>
+                {/* Search in Directory */}
+                <div style={{ position: 'relative', minWidth: '220px' }}>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="Search candidate or ID..."
+                    value={pipelineSearch}
+                    onChange={(e) => setPipelineSearch(e.target.value)}
+                    style={{ paddingLeft: '2.25rem', fontSize: '0.825rem', padding: '0.5rem 0.75rem 0.5rem 2.25rem' }}
+                  />
+                  <Search size={14} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                </div>
+
+                {/* Department Filter */}
+                <select
+                  className="form-input"
+                  value={pipelineFilterDept}
+                  onChange={(e) => setPipelineFilterDept(e.target.value)}
+                  style={{ width: 'auto', fontSize: '0.825rem', padding: '0.5rem 0.75rem' }}
+                >
+                  <option value="All">All Departments</option>
+                  <option value="Engineering">Engineering</option>
+                  <option value="Product">Product</option>
+                  <option value="Marketing">Marketing</option>
+                  <option value="Sales">Sales</option>
+                  <option value="Operations">Operations</option>
+                  <option value="Human Resources">Human Resources</option>
+                  <option value="Finance">Finance</option>
+                </select>
+
+                {/* Refresh Button */}
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={fetchPipeline}
+                  disabled={loadingPipeline}
+                  style={{ padding: '0.5rem 0.875rem', fontSize: '0.825rem' }}
+                  title="Refresh pipeline from DynamoDB"
+                >
+                  <RefreshCw size={14} className={loadingPipeline ? 'spinner' : ''} />
+                  <span>{loadingPipeline ? 'Refreshing...' : 'Refresh'}</span>
+                </button>
+              </div>
             </div>
-            <h3>Pipeline Scan API Pending Backend Implementation</h3>
-            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', margin: '0.75rem 0 1.5rem' }}>
-              The current backend exposes single-record lookup via <code>GET /onboarding/{'{employee_id}'}/status</code>. A full pipeline directory scan endpoint (<code>GET /onboarding/pipeline</code>) is not yet implemented in the SAM backend template.
-            </p>
-            <div className="alert alert-info" style={{ textAlign: 'left', fontSize: '0.825rem' }}>
-              <span>
-                To inspect any candidate's onboarding workflow and document verification state, use the <strong>Search & Track Onboarding</strong> tab above with the candidate's Employee ID.
-              </span>
-            </div>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => setActiveTab('search')}
-              style={{ marginTop: '0.5rem' }}
-            >
-              Go to Employee Lookup
-            </button>
           </div>
+
+          {/* Error State */}
+          {pipelineError && (
+            <div className="alert alert-danger" style={{ marginBottom: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <AlertCircle size={18} />
+                <span>{pipelineError}</span>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={fetchPipeline}
+                style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem' }}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {/* Loading Skeleton */}
+          {loadingPipeline && pipelineEmployees.length === 0 && (
+            <div className="card" style={{ textAlign: 'center', padding: '3rem 1rem' }}>
+              <span className="spinner" style={{ width: '2rem', height: '2rem', marginBottom: '1rem', color: 'var(--primary-400)' }} />
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: 0 }}>
+                Loading employee onboarding pipeline...
+              </p>
+            </div>
+          )}
+
+          {/* Empty State */}
+          {!loadingPipeline && pipelineEmployees.length === 0 && !pipelineError && (
+            <div className="card" style={{ textAlign: 'center', padding: '3rem 1.5rem', maxWidth: '520px', margin: '0 auto' }}>
+              <div style={{
+                width: '48px',
+                height: '48px',
+                borderRadius: '50%',
+                background: 'rgba(99, 102, 241, 0.15)',
+                color: 'var(--primary-400)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: '1rem'
+              }}>
+                <Users size={24} />
+              </div>
+              <h3>No Onboarding Records Found</h3>
+              <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', margin: '0.5rem 0 1.5rem' }}>
+                There are currently no employee records in the system. Register a new hire to launch their multi-stage onboarding pipeline.
+              </p>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => setActiveTab('register')}
+              >
+                <UserPlus size={16} />
+                <span>Register New Hire</span>
+              </button>
+            </div>
+          )}
+
+          {/* Records Table */}
+          {pipelineEmployees.length > 0 && (() => {
+            const filtered = pipelineEmployees.filter(emp => {
+              const matchesDept = pipelineFilterDept === 'All' || emp.department === pipelineFilterDept;
+              const q = pipelineSearch.trim().toLowerCase();
+              const matchesQuery = !q ||
+                (emp.name || '').toLowerCase().includes(q) ||
+                (emp.email || '').toLowerCase().includes(q) ||
+                (emp.employee_id || '').toLowerCase().includes(q) ||
+                (emp.role || '').toLowerCase().includes(q);
+              return matchesDept && matchesQuery;
+            });
+
+            if (filtered.length === 0) {
+              return (
+                <div className="card" style={{ textAlign: 'center', padding: '2.5rem 1rem' }}>
+                  <Search size={28} style={{ color: 'var(--text-muted)', marginBottom: '0.75rem' }} />
+                  <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                    No candidates match the filter criteria.
+                  </p>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      setPipelineFilterDept('All');
+                      setPipelineSearch('');
+                    }}
+                    style={{ marginTop: '0.75rem', fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}
+                  >
+                    Clear Filters
+                  </button>
+                </div>
+              );
+            }
+
+            return (
+              <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{
+                    width: '100%',
+                    borderCollapse: 'collapse',
+                    textAlign: 'left',
+                    fontSize: '0.85rem'
+                  }}>
+                    <thead>
+                      <tr style={{
+                        background: 'var(--bg-surface-elevated)',
+                        borderBottom: '1px solid var(--border-subtle)',
+                        color: 'var(--text-secondary)',
+                        fontSize: '0.75rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em'
+                      }}>
+                        <th style={{ padding: '0.85rem 1rem' }}>Candidate</th>
+                        <th style={{ padding: '0.85rem 1rem' }}>Department & Role</th>
+                        <th style={{ padding: '0.85rem 1rem' }}>Doc Collection</th>
+                        <th style={{ padding: '0.85rem 1rem' }}>IT Provisioning</th>
+                        <th style={{ padding: '0.85rem 1rem' }}>Policy Sign-Off</th>
+                        <th style={{ padding: '0.85rem 1rem' }}>Manager Intro</th>
+                        <th style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map((emp) => {
+                        const status = emp.onboarding_status || {};
+                        return (
+                          <tr
+                            key={emp.employee_id}
+                            style={{
+                              borderBottom: '1px solid var(--border-subtle)',
+                              transition: 'background 0.15s ease'
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.02)'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                          >
+                            {/* Candidate info */}
+                            <td style={{ padding: '0.85rem 1rem' }}>
+                              <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.15rem' }}>
+                                {emp.name || 'Unnamed Employee'}
+                              </div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                {emp.email || '—'}
+                              </div>
+                              <div style={{
+                                marginTop: '0.25rem',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.35rem',
+                                fontFamily: 'monospace',
+                                fontSize: '0.7rem',
+                                color: 'var(--primary-400)',
+                                background: 'rgba(99, 102, 241, 0.08)',
+                                padding: '0.1rem 0.35rem',
+                                borderRadius: '4px'
+                              }}>
+                                <span>{emp.employee_id}</span>
+                              </div>
+                            </td>
+
+                            {/* Department / Role */}
+                            <td style={{ padding: '0.85rem 1rem' }}>
+                              <div style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
+                                {emp.department || '—'}
+                              </div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
+                                {emp.role || '—'}
+                              </div>
+                            </td>
+
+                            {/* Stages */}
+                            <td style={{ padding: '0.85rem 1rem' }}>
+                              <StatusBadge status={status.document_collection || 'pending'} />
+                            </td>
+                            <td style={{ padding: '0.85rem 1rem' }}>
+                              <StatusBadge status={status.it_provisioning || 'pending'} />
+                            </td>
+                            <td style={{ padding: '0.85rem 1rem' }}>
+                              <StatusBadge status={status.policy_signoff || 'pending'} />
+                            </td>
+                            <td style={{ padding: '0.85rem 1rem' }}>
+                              <StatusBadge status={status.manager_intro || 'pending'} />
+                            </td>
+
+                            {/* Action */}
+                            <td style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>
+                              <button
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={() => handleInspectCandidate(emp.employee_id)}
+                                style={{ padding: '0.35rem 0.65rem', fontSize: '0.75rem' }}
+                                title="Inspect full onboarding workflow"
+                              >
+                                <ExternalLink size={12} />
+                                <span>Track</span>
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Footer Count */}
+                <div style={{
+                  padding: '0.75rem 1rem',
+                  borderTop: '1px solid var(--border-subtle)',
+                  background: 'var(--bg-surface-elevated)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  fontSize: '0.775rem',
+                  color: 'var(--text-secondary)'
+                }}>
+                  <span>Showing <strong>{filtered.length}</strong> of <strong>{pipelineEmployees.length}</strong> candidates</span>
+                  <span>Auto-synchronized with DynamoDB</span>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
+
     </div>
   );
 }
