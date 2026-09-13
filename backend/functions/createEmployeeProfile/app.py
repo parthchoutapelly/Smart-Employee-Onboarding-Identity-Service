@@ -13,6 +13,8 @@ logger.setLevel(logging.INFO)
 
 dynamodb = boto3.resource("dynamodb")
 lambda_client = boto3.client("lambda")
+# Phase 5: Step Functions client — starts the onboarding state machine after profile creation
+sfn_client = boto3.client("stepfunctions")
 
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 REQUIRED_FIELDS = ["name", "email", "department", "role", "manager", "joining_date", "employment_type"]
@@ -111,6 +113,28 @@ def lambda_handler(event, context):
     except ClientError as e:
         logger.error("DynamoDB put_item failed: %s", e.response["Error"]["Message"])
         return build_response(500, {"error": "Failed to persist employee record to database"})
+
+    # Phase 5: Start the Step Functions onboarding state machine immediately after profile creation.
+    # If this fails the caller gets a 500 — we do NOT silently return 201 without a running workflow.
+    state_machine_arn = os.environ.get("STATE_MACHINE_ARN")
+    if state_machine_arn:
+        try:
+            sfn_client.start_execution(
+                stateMachineArn=state_machine_arn,
+                input=json.dumps({"employee_id": employee_id})
+            )
+            logger.info("Started Step Functions execution for employee_id: %s", employee_id)
+        except Exception as e:
+            logger.error(
+                "Failed to start Step Functions execution for employee_id %s: %s",
+                employee_id,
+                str(e)
+            )
+            return build_response(500, {
+                "error": "Employee profile created but failed to start onboarding workflow"
+            })
+    else:
+        logger.warning("STATE_MACHINE_ARN not configured; Step Functions execution not started")
 
     # Trigger Cognito user provisioning Lambda asynchronously
     provision_func = os.environ.get("PROVISION_FUNCTION_NAME")

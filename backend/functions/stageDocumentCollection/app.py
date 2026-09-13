@@ -14,10 +14,12 @@ STAGE_NAME = "document_collection"
 
 def lambda_handler(event, context):
     """
-    Step Functions Stage Handler: DocumentCollection
+    Step Functions Stage Handler: DocumentCollection (initiator)
     Receives: { "employee_id": "<uuid>" }
-    Updates EmployeeProfileTable onboarding_status.document_collection -> 'complete'
-    Returns: { "employee_id": "<uuid>", "stage": "document_collection", "status": "complete" }
+    Marks onboarding_status.document_collection -> 'in_progress' to record that the stage
+    has started.  Actual completion is determined asynchronously by validateDocument (Phase 3)
+    and polled by CheckDocumentCollectionFunction via the WaitForDocuments Step Functions loop.
+    Returns: { "employee_id": "<uuid>", "stage": "document_collection", "status": "in_progress" }
     """
     logger.info("Stage [%s] invoked with event: %s", STAGE_NAME, json.dumps(event))
 
@@ -42,14 +44,14 @@ def lambda_handler(event, context):
             UpdateExpression="SET onboarding_status.#stage = :status, onboarding_status.#updated = :ts",
             ExpressionAttributeNames={
                 "#stage": STAGE_NAME,
-                "#updated": f"{STAGE_NAME}_completed_at"
+                "#updated": f"{STAGE_NAME}_started_at"
             },
             ExpressionAttributeValues={
-                ":status": "complete",
+                ":status": "in_progress",
                 ":ts": now_iso
             }
         )
-        logger.info("Successfully updated stage [%s] for employee_id: %s to complete", STAGE_NAME, employee_id)
+        logger.info("Marked stage [%s] as in_progress for employee_id: %s", STAGE_NAME, employee_id)
     except ClientError as e:
         logger.error("DynamoDB update_item failed for employee_id %s: %s", employee_id, e.response["Error"]["Message"])
         raise
@@ -57,5 +59,5 @@ def lambda_handler(event, context):
     return {
         "employee_id": employee_id,
         "stage": STAGE_NAME,
-        "status": "complete"
+        "status": "in_progress"
     }

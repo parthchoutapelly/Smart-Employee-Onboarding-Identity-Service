@@ -42,6 +42,16 @@ Resources:
     Properties:
       Name: !Sub "onboarding-api-${Stage}"
       StageName: !Ref Stage
+      # Phase 5: Cognito authorizer — protects POST /employees, GET /onboarding/{id}/status,
+      # and POST /documents/upload-url. HR admins must have a Cognito account in this pool.
+      # Lambda-level role-based enforcement (HR vs. Employee) can be added in a future phase.
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt CognitoUserPool.Arn
+        # Keep OPTIONS (preflight) unauthenticated so browsers can call CORS checks without a token
+        AddDefaultAuthorizerToCorsPreflight: false
       Cors:
         AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
         AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
@@ -69,6 +79,19 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+      # Phase 5: CORS for browser-based presigned PUT uploads from the frontend S3 website.
+      # Bucket remains PRIVATE — CORS only governs browser preflight validation.
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods:
+              - PUT
+              - GET
+              - HEAD
+            AllowedOrigins:
+              - !Sub "http://onboarding-frontend-${Stage}-${AWS::AccountId}.s3-website.ap-south-1.amazonaws.com"
+            AllowedHeaders:
+              - "*"
+            MaxAge: 3000
       Tags:
         - Key: Project
           Value: smart-employee-onboarding
@@ -326,6 +349,15 @@ Resources:
                 Action:
                   - lambda:InvokeFunction
                 Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:onboarding-provision-cognito-user-${Stage}"
+        # Phase 5: permission to start the Step Functions onboarding state machine
+        - PolicyName: StartOnboardingStateMachinePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - states:StartExecution
+                Resource: !Ref OnboardingStateMachine
       Tags:
         - Key: Project
           Value: smart-employee-onboarding
@@ -640,9 +672,48 @@ Resources:
                   - lambda:InvokeFunction
                 Resource:
                   - !GetAtt StageDocumentCollectionFunction.Arn
+                  # Phase 5: polling checker for document collection completion
+                  - !GetAtt CheckDocumentCollectionFunction.Arn
                   - !GetAtt StageITProvisioningFunction.Arn
                   - !GetAtt StagePolicySignOffFunction.Arn
                   - !GetAtt StageManagerIntroFunction.Arn
+      Tags:
+        - Key: Project
+          Value: smart-employee-onboarding
+        - Key: Environment
+          Value: !Ref Stage
+
+  # Phase 5: Least-privilege role for the document-collection polling checker
+  CheckDocumentCollectionFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "onboarding-check-doc-collection-role-${Stage}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudWatchLogsScopedPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/onboarding-check-doc-collection-${Stage}:*"
+        - PolicyName: DynamoDBReadDocStatusPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                Resource: !GetAtt EmployeeProfileTable.Arn
       Tags:
         - Key: Project
           Value: smart-employee-onboarding
@@ -764,6 +835,8 @@ Resources:
       Environment:
         Variables:
           PROVISION_FUNCTION_NAME: !Sub "onboarding-provision-cognito-user-${Stage}"
+          # Phase 5: ARN of the Step Functions state machine to start after profile creation
+          STATE_MACHINE_ARN: !Ref OnboardingStateMachine
       Events:
         CreateEmployee:
           Type: Api
@@ -830,6 +903,21 @@ Resources:
       CodeUri: backend/functions/stageManagerIntro/
       Handler: app.lambda_handler
       Role: !GetAtt StageManagerIntroFunctionRole.Arn
+      Tags:
+        Project: smart-employee-onboarding
+        Environment: !Ref Stage
+
+  # Phase 5: Polling checker — invoked by the Step Functions WaitForDocuments loop
+  CheckDocumentCollectionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "onboarding-check-doc-collection-${Stage}"
+      CodeUri: backend/functions/checkDocumentCollection/
+      Handler: app.lambda_handler
+      Role: !GetAtt CheckDocumentCollectionFunctionRole.Arn
+      Environment:
+        Variables:
+          EMPLOYEE_TABLE_NAME: !Ref EmployeeProfileTable
       Tags:
         Project: smart-employee-onboarding
         Environment: !Ref Stage
@@ -930,6 +1018,8 @@ Resources:
       DefinitionUri: backend/statemachines/onboarding-state-machine.asl.json
       DefinitionSubstitutions:
         StageDocumentCollectionArn: !GetAtt StageDocumentCollectionFunction.Arn
+        # Phase 5: polling checker used by WaitForDocuments loop
+        CheckDocumentCollectionArn: !GetAtt CheckDocumentCollectionFunction.Arn
         StageITProvisioningArn: !GetAtt StageITProvisioningFunction.Arn
         StagePolicySignOffArn: !GetAtt StagePolicySignOffFunction.Arn
         StageManagerIntroArn: !GetAtt StageManagerIntroFunction.Arn

@@ -57,10 +57,16 @@ class TestStageLambdas(unittest.TestCase):
 
         self.assertEqual(result["employee_id"], "test-uuid-1")
         self.assertEqual(result["stage"], "document_collection")
-        self.assertEqual(result["status"], "complete")
+        # Phase 5: stageDocumentCollection now marks the stage as in_progress, not complete.
+        # Actual completion is determined by validateDocument (S3 event) and polled by
+        # checkDocumentCollection via the WaitForDocuments Step Functions loop.
+        self.assertEqual(result["status"], "in_progress")
         self.mock_table.update_item.assert_called_once()
         call_kwargs = self.mock_table.update_item.call_args[1]
         self.assertEqual(call_kwargs["Key"], {"employee_id": "test-uuid-1"})
+        # Confirm the DynamoDB write uses in_progress, not complete
+        self.assertIn(":status", call_kwargs["ExpressionAttributeValues"])
+        self.assertEqual(call_kwargs["ExpressionAttributeValues"][":status"], "in_progress")
 
     def test_stage_it_provisioning(self):
         it_prov_mod.dynamodb = self.mock_dynamo
@@ -200,8 +206,18 @@ class TestStateMachineASL(unittest.TestCase):
         self.assertEqual(asl.get("StartAt"), "DocumentCollection")
         states = asl.get("States", {})
 
-        # Verify all sequential states exist
-        expected_states = ["DocumentCollection", "ITProvisioning", "PolicySignOff", "ManagerIntro", "Complete", "Failed"]
+        # Phase 5: ASL now includes the WaitForDocuments polling loop states
+        expected_states = [
+            "DocumentCollection",
+            "CheckDocumentCollection",
+            "DocumentCollectionChoice",
+            "WaitForDocuments",
+            "ITProvisioning",
+            "PolicySignOff",
+            "ManagerIntro",
+            "Complete",
+            "Failed"
+        ]
         for s in expected_states:
             self.assertIn(s, states, f"State {s} missing in ASL")
 
@@ -209,7 +225,21 @@ class TestStateMachineASL(unittest.TestCase):
         doc_state = states["DocumentCollection"]
         self.assertIn("Retry", doc_state)
         self.assertIn("Catch", doc_state)
-        self.assertEqual(doc_state["Next"], "ITProvisioning")
+        # Phase 5: DocumentCollection now transitions to the polling checker, not directly to ITProvisioning
+        self.assertEqual(doc_state["Next"], "CheckDocumentCollection")
+
+        # Verify Choice state routes complete -> ITProvisioning
+        choice_state = states["DocumentCollectionChoice"]
+        self.assertEqual(choice_state["Type"], "Choice")
+        complete_choice = choice_state["Choices"][0]
+        self.assertEqual(complete_choice["StringEquals"], "complete")
+        self.assertEqual(complete_choice["Next"], "ITProvisioning")
+        self.assertEqual(choice_state["Default"], "WaitForDocuments")
+
+        # Verify Wait state loops back to checker
+        wait_state = states["WaitForDocuments"]
+        self.assertEqual(wait_state["Type"], "Wait")
+        self.assertEqual(wait_state["Next"], "CheckDocumentCollection")
 
         # Verify final states
         self.assertEqual(states["Complete"]["Type"], "Succeed")

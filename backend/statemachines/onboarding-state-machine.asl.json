@@ -5,6 +5,7 @@
     "DocumentCollection": {
       "Type": "Task",
       "Resource": "${StageDocumentCollectionArn}",
+      "Comment": "Phase 5: Marks document_collection as in_progress. Does NOT complete the stage.",
       "Parameters": {
         "employee_id.$": "$.employee_id"
       },
@@ -27,7 +28,54 @@
           "Next": "Failed"
         }
       ],
-      "Next": "ITProvisioning"
+      "Next": "CheckDocumentCollection"
+    },
+    "CheckDocumentCollection": {
+      "Type": "Task",
+      "Resource": "${CheckDocumentCollectionArn}",
+      "Comment": "Phase 5: Polls DynamoDB to check if document_collection is complete.",
+      "Parameters": {
+        "employee_id.$": "$.employee_id"
+      },
+      "ResultPath": "$.check_result",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "Failed"
+        }
+      ],
+      "Next": "DocumentCollectionChoice"
+    },
+    "DocumentCollectionChoice": {
+      "Type": "Choice",
+      "Comment": "Phase 5: Branch on document_collection status returned by CheckDocumentCollection.",
+      "Choices": [
+        {
+          "Variable": "$.check_result.document_collection",
+          "StringEquals": "complete",
+          "Next": "ITProvisioning"
+        }
+      ],
+      "Default": "WaitForDocuments"
+    },
+    "WaitForDocuments": {
+      "Type": "Wait",
+      "Comment": "Phase 5: Pause 30 seconds before re-polling. Documents are validated asynchronously via S3 events.",
+      "Seconds": 30,
+      "Next": "CheckDocumentCollection"
     },
     "ITProvisioning": {
       "Type": "Task",

@@ -33,7 +33,7 @@ Fully automated digital onboarding system — offer acceptance to Day 1 readines
 - **Storage**: Amazon S3 (SSE-S3 encrypted documents bucket with versioning; separate static website hosting bucket)
 - **Workflow & Orchestration**: AWS Step Functions & Amazon EventBridge
 - **Auth & Messaging**: Amazon Cognito, Amazon SES, Amazon SNS, Amazon API Gateway
-- **Frontend**: React + Vite (`/frontend/portal` and `/frontend/admin`)
+- **Frontend**: React + Vite (single SPA at `frontend/` — served from `frontend/index.html`)
 
 ---
 
@@ -158,7 +158,11 @@ curl -X POST "https://<API_ID>.execute-api.ap-south-1.amazonaws.com/dev/employee
 
 ### Step Functions State Machine: `onboarding-state-machine`
 - **Definition**: [`backend/statemachines/onboarding-state-machine.asl.json`](file:///Users/parthchoutapelly/Desktop/Smart%20Employee%20Onboarding%20&%20Identity%20Service/backend/statemachines/onboarding-state-machine.asl.json)
-- **Flow**: `DocumentCollection` -> `ITProvisioning` -> `PolicySignOff` -> `ManagerIntro` -> `Complete`
+- **Flow (Phase 5 updated)**:
+  1. `DocumentCollection` — marks stage `in_progress`
+  2. `CheckDocumentCollection` — polls DynamoDB; loops back via `WaitForDocuments` (30 s) until `document_collection == complete`
+  3. `ITProvisioning` → `PolicySignOff` → `ManagerIntro` → `Complete`
+- **Document collection completes only when all three required documents (`id_proof`, `degree_certificate`, `offer_letter`) are verified by `validateDocument` (triggered by S3 ObjectCreated events).**
 - **Resilience**: 3 retries per stage with exponential backoff (`IntervalSeconds: 2`, `BackoffRate: 2.0`), fallback error catching into `Failed` state.
 - **Input Contract**:
   ```json
@@ -166,7 +170,8 @@ curl -X POST "https://<API_ID>.execute-api.ap-south-1.amazonaws.com/dev/employee
   ```
 
 ### Stage Lambda Functions:
-- `onboarding-stage-document-collection-${Stage}`: updates `onboarding_status.document_collection` to `complete`.
+- `onboarding-stage-document-collection-${Stage}`: marks `onboarding_status.document_collection` as `in_progress` (Phase 5: no longer writes `complete` prematurely).
+- `onboarding-check-doc-collection-${Stage}`: polls `document_collection` status; used by Step Functions WaitForDocuments loop.
 - `onboarding-stage-it-provisioning-${Stage}`: updates `onboarding_status.it_provisioning` to `complete`.
 - `onboarding-stage-policy-signoff-${Stage}`: updates `onboarding_status.policy_signoff` to `complete`.
 - `onboarding-stage-manager-intro-${Stage}`: updates `onboarding_status.manager_intro` to `complete`.
@@ -235,6 +240,38 @@ curl -X POST "https://<API_ID>.execute-api.ap-south-1.amazonaws.com/dev/employee
   - Atomically marks `onboarding_status.document_collection = complete`.
   - Publishes `all_documents_verified` event to SNS topic `onboarding-hr-notifications-${Stage}` (deduplicated against retries).
 
+## Phase 4 — Frontend Application (Complete)
+
+### Architecture
+- **Single-Page Application (SPA)**: Built with React and Vite in [`frontend/`](file:///Users/parthchoutapelly/Desktop/Smart%20Employee%20Onboarding%20&%20Identity%20Service/frontend).
+- **Portals**:
+  - **Employee Portal**: Dedicated view for new hires to inspect real-time onboarding status, view stage milestones, and upload required onboarding documents (`id_proof`, `degree_certificate`, `offer_letter`).
+  - **Admin Portal**: HR management interface to onboard new employees (`POST /employees`), search employee records, and track onboarding pipelines across all workflow stages.
+- **Authentication**: Integrates AWS Amplify with Amazon Cognito User Pool. Handles email/password sign-in, temporary password challenges (`CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED`), custom user attributes (`custom:employee_id`, `custom:role`, `custom:department`), and session persistence.
+- **S3 Direct Uploads**: Uploads files directly to S3 via presigned PUT URLs with strict Content-Type mapping (`application/pdf`, `image/jpeg`, `image/png`).
+
+---
+
+## Phase 5 — Testing & Integration (Complete)
+
+### Key Integrations
+1. **API Gateway Cognito Authorizer**:
+   - `OnboardingApi` secured with Cognito User Pool Authorizer (`DefaultAuthorizer: CognitoAuthorizer`).
+   - Protects `POST /employees`, `GET /onboarding/{id}/status`, and `POST /documents/upload-url`.
+   - Preserves unauthenticated `OPTIONS` preflight requests (`AddDefaultAuthorizerToCorsPreflight: false`) for browser CORS compatibility.
+2. **S3 CORS on Documents Bucket**:
+   - Configured `CorsConfiguration` on `DocumentsBucket` allowing `PUT`, `GET`, and `HEAD` from the frontend S3 website origin with custom headers.
+3. **End-to-End Orchestration**:
+   - `createEmployeeProfile` automatically triggers the Step Functions state machine (`states:StartExecution`) upon employee creation.
+   - `stageDocumentCollection` marks stage as `in_progress` rather than prematurely completing.
+   - `CheckDocumentCollectionFunction` (`onboarding-check-doc-collection-${Stage}`) polls DynamoDB status.
+   - `onboarding-state-machine` incorporates a polling loop (`WaitForDocuments` 30s backoff) until all 3 documents are verified by S3 event-driven validation.
+
+### Automated Testing Suite
+- **Pytest**: 45 unit and integration tests across all phases (`tests/test_phase1.py` through `tests/test_phase5.py`).
+- **SAM Validation & Build**: Validated against SAM linter and verified full build with `sam build`.
+- **Frontend Build**: Production bundle compilation verified with `npm run build`.
+
 ---
 
 ## Phase Index
@@ -243,6 +280,6 @@ curl -X POST "https://<API_ID>.execute-api.ap-south-1.amazonaws.com/dev/employee
 - **Phase 1 — Employee Record & Identity** — ✅ Complete
 - **Phase 2 — Onboarding Workflow Engine** — ✅ Complete
 - **Phase 3 — Document Collection** — ✅ Complete
-- **Phase 4 — Frontend** — ⏳ Upcoming
-- **Phase 5 — Testing & Integration** — ⏳ Upcoming
+- **Phase 4 — Frontend** — ✅ Complete
+- **Phase 5 — Testing & Integration** — ✅ Complete
 - **Phase 6 — Deliverables & Documentation** — ⏳ Upcoming
