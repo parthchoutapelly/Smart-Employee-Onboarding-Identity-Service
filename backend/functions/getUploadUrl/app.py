@@ -4,11 +4,25 @@ import os
 
 import boto3
 from botocore.exceptions import ClientError
+try:
+    from botocore.config import Config
+except (ImportError, ModuleNotFoundError):
+    from botocore import config
+    Config = config.Config
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-s3_client = boto3.client("s3")
+AWS_REGION = os.environ.get("AWS_REGION", "ap-south-1")
+
+s3_client = boto3.client(
+    "s3",
+    region_name=AWS_REGION,
+    config=Config(
+        signature_version="s3v4",
+        s3={"addressing_style": "virtual"}
+    )
+)
 
 ALLOWED_DOCUMENT_TYPES = {"id_proof", "degree_certificate", "offer_letter"}
 ALLOWED_EXTENSIONS = {"pdf", "jpg", "png"}
